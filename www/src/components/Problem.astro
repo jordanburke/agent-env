@@ -1,0 +1,56 @@
+---
+const problems = [
+  {
+    bad: "Export in .bashrc",
+    desc: "Leaks to every process, clutters your shell",
+    icon: "~/.bashrc",
+  },
+  {
+    bad: "Prefix every command",
+    desc: "API keys in shell history, tedious",
+    icon: "$ KEY=...",
+  },
+  {
+    bad: "Use direnv",
+    desc: "Not designed for secrets, no encryption",
+    icon: ".envrc",
+  },
+  {
+    bad: "Configure each agent",
+    desc: "Different config per tool, fragmented",
+    icon: "N configs",
+  },
+]
+---
+
+<section class="px-6 py-16 md:py-24">
+  <div class="mx-auto max-w-4xl">
+    <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">
+      The problem with secrets today
+    </h2>
+    <p class="mb-12 text-center text-terminal-dim">
+      AI agents need API keys. Current approaches all have trade-offs.
+    </p>
+
+    <div class="grid gap-4 md:grid-cols-2">
+      {
+        problems.map((p) => (
+          <div class="rounded-lg border border-border-subtle bg-surface-raised p-5">
+            <div class="mb-2 flex items-center gap-3">
+              <code class="rounded bg-surface-overlay px-2 py-0.5 text-xs text-terminal-red">{p.icon}</code>
+              <span class="font-semibold text-gray-200">{p.bad}</span>
+            </div>
+            <p class="text-sm text-terminal-dim">{p.desc}</p>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-10 rounded-lg border border-terminal-green/20 bg-terminal-green/5 p-5 text-center">
+      <p class="text-terminal-green">
+        <span class="font-bold">agent-env</span> &mdash; one secrets file, automatic discovery, optional encryption.
+        Works with every agent.
+      </p>
+    </div>
+  </div>
+</section>

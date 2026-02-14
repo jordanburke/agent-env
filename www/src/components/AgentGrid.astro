@@ -1,0 +1,43 @@
+---
+const agents = [
+  { name: "Claude Code", cmd: "claude", url: "https://docs.anthropic.com/en/docs/claude-code" },
+  { name: "Codex", cmd: "codex", url: "https://github.com/openai/codex" },
+  { name: "Aider", cmd: "aider", url: "https://aider.chat" },
+  { name: "Goose", cmd: "goose", url: "https://github.com/block/goose" },
+  { name: "Cline", cmd: "cline", url: "https://cline.bot" },
+  { name: "Continue", cmd: "continue", url: "https://continue.dev" },
+  { name: "Cursor", cmd: "cursor", url: "https://cursor.sh" },
+  { name: "Windsurf", cmd: "windsurf", url: "https://windsurf.ai" },
+]
+---
+
+<section class="px-6 py-16 md:py-24">
+  <div class="mx-auto max-w-4xl">
+    <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">Works with every agent</h2>
+    <p class="mb-12 text-center text-terminal-dim">
+      If it runs as a CLI, agent-env supports it.
+    </p>
+
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {
+        agents.map((agent) => (
+          <a
+            href={agent.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="group rounded-lg border border-border-subtle bg-surface-raised p-4 text-center transition-colors hover:border-terminal-green/40"
+          >
+            <div class="mb-2 text-sm font-semibold text-gray-200 group-hover:text-white">{agent.name}</div>
+            <code class="text-xs text-terminal-green">agent-env run {agent.cmd}</code>
+          </a>
+        ))
+      }
+    </div>
+
+    <div class="mt-6 text-center">
+      <code class="rounded bg-surface-raised px-4 py-2 text-sm text-terminal-dim">
+        agent-env run &lt;any-command&gt;
+      </code>
+    </div>
+  </div>
+</section>

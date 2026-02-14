@@ -1,0 +1,65 @@
+---
+const installCmd = "curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash"
+---
+
+<section class="relative px-6 pt-24 pb-16 md:pt-32 md:pb-24">
+  <div class="mx-auto max-w-4xl text-center">
+    <div
+      class="mb-6 inline-block rounded-full border border-terminal-green/20 bg-terminal-green/5 px-4 py-1.5 text-sm text-terminal-green"
+    >
+      v0.1.0 &mdash; Open Source
+    </div>
+
+    <h1 class="mb-6 text-4xl font-bold tracking-tight text-white md:text-6xl">
+      <span class="text-terminal-green">agent-env</span>
+    </h1>
+
+    <p class="mb-2 text-xl text-gray-300 md:text-2xl">
+      Universal secret injection for AI coding agents.
+    </p>
+    <p class="mb-10 text-lg text-terminal-dim">
+      One command. Every agent. Secrets stay out of your shell history.
+    </p>
+
+    <!-- Install command -->
+    <div class="mx-auto max-w-2xl">
+      <div class="group relative rounded-lg border border-border-subtle bg-surface-raised p-4">
+        <div class="mb-2 flex items-center gap-2 text-xs text-terminal-dim">
+          <span class="inline-block h-3 w-3 rounded-full bg-terminal-red/60"></span>
+          <span class="inline-block h-3 w-3 rounded-full bg-terminal-yellow/60"></span>
+          <span class="inline-block h-3 w-3 rounded-full bg-terminal-green/60"></span>
+          <span class="ml-2">terminal</span>
+        </div>
+        <div class="flex items-center gap-3 overflow-x-auto">
+          <span class="shrink-0 text-terminal-green">$</span>
+          <code id="install-cmd" class="text-sm text-gray-300 md:text-base">{installCmd}</code>
+          <button
+            id="copy-btn"
+            class="ml-auto shrink-0 rounded border border-border-subtle px-2 py-1 text-xs text-terminal-dim transition-colors hover:border-terminal-green hover:text-terminal-green"
+            aria-label="Copy install command"
+          >
+            copy
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick usage -->
+    <div class="mt-8 flex flex-col items-center gap-2 text-sm text-terminal-dim">
+      <span>then:</span>
+      <code class="rounded bg-surface-raised px-3 py-1 text-terminal-cyan">agent-env run claude</code>
+    </div>
+  </div>
+</section>
+
+<script>
+  const btn = document.getElementById("copy-btn")
+  const cmd = document.getElementById("install-cmd")
+  btn?.addEventListener("click", async () => {
+    if (cmd) {
+      await navigator.clipboard.writeText(cmd.textContent ?? "")
+      btn.textContent = "copied!"
+      setTimeout(() => (btn.textContent = "copy"), 2000)
+    }
+  })
+</script>

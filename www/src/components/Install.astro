@@ -1,0 +1,66 @@
+---
+const methods = [
+  {
+    title: "One-line install",
+    code: "curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash",
+  },
+  {
+    title: "Clone and install",
+    code: "git clone https://github.com/jordanburke/agent-env.git\ncd agent-env && ./install.sh",
+  },
+]
+---
+
+<section class="px-6 py-16 md:py-24">
+  <div class="mx-auto max-w-4xl">
+    <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">Get started</h2>
+    <p class="mb-12 text-center text-terminal-dim">Two ways to install. Takes seconds.</p>
+
+    <div class="grid gap-6 md:grid-cols-2">
+      {
+        methods.map((m) => (
+          <div class="rounded-lg border border-border-subtle bg-surface-raised p-5">
+            <h3 class="mb-3 text-sm font-semibold text-terminal-green">{m.title}</h3>
+            <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-gray-300"><code>{m.code}</code></pre>
+          </div>
+        ))
+      }
+    </div>
+
+    <!-- Quick start steps -->
+    <div class="mt-12 rounded-lg border border-border-subtle bg-surface-raised p-6">
+      <h3 class="mb-4 text-lg font-semibold text-white">Quick start</h3>
+      <div class="space-y-3 text-sm">
+        <div class="flex items-start gap-3">
+          <span class="shrink-0 text-terminal-green">1.</span>
+          <div>
+            <code class="text-terminal-cyan">agent-env init</code>
+            <span class="text-terminal-dim"> &mdash; create .env in your project</span>
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="shrink-0 text-terminal-green">2.</span>
+          <div>
+            <span class="text-terminal-dim">Add your API keys to </span>
+            <code class="text-terminal-cyan">.env</code>
+          </div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="shrink-0 text-terminal-green">3.</span>
+          <div>
+            <code class="text-terminal-cyan">agent-env run claude</code>
+            <span class="text-terminal-dim"> &mdash; done</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SOPS option -->
+    <div class="mt-6 rounded-lg border border-terminal-cyan/20 bg-terminal-cyan/5 p-5 text-center text-sm">
+      <p class="text-terminal-cyan">
+        Want encryption? Use <code class="font-bold">agent-env init --sops</code> for SOPS + age encrypted secrets
+        that are safe to commit to git.
+      </p>
+    </div>
+  </div>
+</section>

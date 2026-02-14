@@ -1,0 +1,61 @@
+---
+const steps = [
+  {
+    num: "1",
+    title: "Discover",
+    desc: "Walks from PWD up to git root, then global fallbacks. Finds .sops.env or .env automatically.",
+    code: "# auto-discovers .env or .sops.env",
+  },
+  {
+    num: "2",
+    title: "Detect",
+    desc: 'Auto-detects format: grep "^sops:" header means SOPS, otherwise dotenv. No config needed.',
+    code: '# grep -q "^sops:" → SOPS mode',
+  },
+  {
+    num: "3",
+    title: "Load",
+    desc: "SOPS files decrypted via sops exec-env. Dotenv files sourced with set -a. Secrets in memory only.",
+    code: "# secrets loaded into env vars",
+  },
+  {
+    num: "4",
+    title: "Exec",
+    desc: "Process replacement via exec. agent-env ceases to exist. Only your agent remains.",
+    code: '# exec claude "$@"',
+  },
+]
+---
+
+<section class="px-6 py-16 md:py-24">
+  <div class="mx-auto max-w-4xl">
+    <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">How it works</h2>
+    <p class="mb-12 text-center text-terminal-dim">
+      Four steps, zero config, one bash script.
+    </p>
+
+    <div class="relative">
+      <!-- Vertical line -->
+      <div class="absolute left-6 top-0 hidden h-full w-px bg-border-subtle md:block"></div>
+
+      <div class="space-y-8">
+        {
+          steps.map((step) => (
+            <div class="flex gap-6">
+              <div class="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-terminal-green/30 bg-surface-raised text-lg font-bold text-terminal-green">
+                {step.num}
+              </div>
+              <div class="flex-1 rounded-lg border border-border-subtle bg-surface-raised p-5">
+                <h3 class="mb-1 text-lg font-semibold text-white">{step.title}</h3>
+                <p class="mb-3 text-sm text-terminal-dim">{step.desc}</p>
+                <code class="block rounded bg-surface-overlay px-3 py-1.5 text-xs text-terminal-cyan">
+                  {step.code}
+                </code>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>

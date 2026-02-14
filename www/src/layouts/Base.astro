@@ -1,0 +1,33 @@
+---
+interface Props {
+  title?: string
+  description?: string
+}
+
+const {
+  title = "agent-env — Universal secret injection for AI coding agents",
+  description = "One command. Every agent. Secrets stay out of your shell history. Works with Claude Code, Codex, Aider, Goose, and any CLI agent.",
+} = Astro.props
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0a0a0f" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+  </head>
+  <body class="min-h-screen antialiased">
+    <slot />
+  </body>
+</html>
+
+<style>
+  @import "../styles/global.css";
+</style>

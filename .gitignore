@@ -1,0 +1,27 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.age
+!age-key.txt.example
+
+# SOPS encrypted files should be committed, but not decrypted ones
+.sops.env.dec
+.secrets.dec.env
+
+# Dependencies
+node_modules/
+
+# Build output
+www/dist/
+www/.astro/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,558 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================================
+# agent-env — Universal secret injection for AI coding agents
+# https://github.com/jordanburke/agent-env
+# ============================================================================
+
+VERSION="0.1.0"
+PROGRAM="agent-env"
+
+# Colors (disabled if not a terminal)
+if [[ -t 2 ]]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  BLUE='\033[0;34m'
+  CYAN='\033[0;36m'
+  DIM='\033[0;2m'
+  BOLD='\033[1m'
+  RESET='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' BLUE='' CYAN='' DIM='' BOLD='' RESET=''
+fi
+
+VERBOSE=0
+FORCE_MODE=""       # "sops" or "dotenv" or ""
+EXPLICIT_FILE=""    # user-specified secrets file
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+info()    { printf "${BLUE}info${RESET}  %s\n" "$*" >&2; }
+warn()    { printf "${YELLOW}warn${RESET}  %s\n" "$*" >&2; }
+error()   { printf "${RED}error${RESET} %s\n" "$*" >&2; }
+debug()   { [[ "$VERBOSE" -eq 1 ]] && printf "${DIM}debug %s${RESET}\n" "$*" >&2; }
+success() { printf "${GREEN}ok${RESET}    %s\n" "$*" >&2; }
+
+die() {
+  error "$@"
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
+command_exists() {
+  command -v "$1" &>/dev/null
+}
+
+git_root() {
+  git rev-parse --show-toplevel 2>/dev/null
+}
+
+is_sops_file() {
+  local file="$1"
+  [[ -f "$file" ]] && head -5 "$file" | grep -q "^sops:"
+}
+
+detect_mode() {
+  local file="$1"
+  if [[ -n "$FORCE_MODE" ]]; then
+    echo "$FORCE_MODE"
+  elif is_sops_file "$file"; then
+    echo "sops"
+  else
+    echo "dotenv"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# File Discovery
+#
+# Walk from PWD up to git root (or filesystem root), then check global
+# fallback locations. SOPS files take priority over dotenv when both exist
+# in the same directory.
+# ---------------------------------------------------------------------------
+discover_secrets_file() {
+  if [[ -n "$EXPLICIT_FILE" ]]; then
+    if [[ -f "$EXPLICIT_FILE" ]]; then
+      echo "$EXPLICIT_FILE"
+      return 0
+    else
+      die "Specified secrets file not found: $EXPLICIT_FILE"
+    fi
+  fi
+
+  local stop_at
+  stop_at="$(git_root)" || stop_at=""
+
+  local dir
+  dir="$(pwd)"
+
+  # Walk up the directory tree
+  while true; do
+    debug "Searching: $dir"
+
+    # SOPS takes priority
+    if [[ -f "$dir/.sops.env" ]]; then
+      debug "Found: $dir/.sops.env"
+      echo "$dir/.sops.env"
+      return 0
+    fi
+
+    if [[ -f "$dir/.env" ]]; then
+      debug "Found: $dir/.env"
+      echo "$dir/.env"
+      return 0
+    fi
+
+    # Stop at git root if we're in a repo
+    if [[ -n "$stop_at" && "$dir" == "$stop_at" ]]; then
+      debug "Reached git root: $stop_at"
+      break
+    fi
+
+    # Stop at filesystem root
+    local parent
+    parent="$(dirname "$dir")"
+    if [[ "$parent" == "$dir" ]]; then
+      break
+    fi
+    dir="$parent"
+  done
+
+  # Global fallback locations
+  local -a fallbacks=(
+    "${XDG_CONFIG_HOME:-$HOME/.config}/agent-env/.sops.env"
+    "${XDG_CONFIG_HOME:-$HOME/.config}/agent-env/.env"
+    "$HOME/.sops.env"
+    "$HOME/.env"
+  )
+
+  for fb in "${fallbacks[@]}"; do
+    debug "Checking fallback: $fb"
+    if [[ -f "$fb" ]]; then
+      debug "Found fallback: $fb"
+      echo "$fb"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Dependency Checks
+# ---------------------------------------------------------------------------
+check_sops_deps() {
+  local ok=1
+  if ! command_exists sops; then
+    error "sops is required for encrypted secrets but not found"
+    printf "  Install: ${CYAN}brew install sops${RESET} or ${CYAN}https://github.com/getsops/sops${RESET}\n" >&2
+    ok=0
+  fi
+  if ! command_exists age; then
+    warn "age not found (needed if your SOPS file uses age encryption)"
+    printf "  Install: ${CYAN}brew install age${RESET} or ${CYAN}https://github.com/FiloSottile/age${RESET}\n" >&2
+  fi
+  [[ "$ok" -eq 1 ]]
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: run
+# ---------------------------------------------------------------------------
+cmd_run() {
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -v|--verbose) VERBOSE=1; shift ;;
+      --sops)       FORCE_MODE="sops"; shift ;;
+      --dotenv)     FORCE_MODE="dotenv"; shift ;;
+      --env|--secrets) EXPLICIT_FILE="$2"; shift 2 ;;
+      --env=*|--secrets=*) EXPLICIT_FILE="${1#*=}"; shift ;;
+      -*)           die "Unknown run option: $1 (use '$PROGRAM help' for usage)" ;;
+      *)            args+=("$@"); break ;;
+    esac
+  done
+
+  if [[ ${#args[@]} -eq 0 ]]; then
+    die "No agent command specified. Usage: $PROGRAM run <agent> [args...]"
+  fi
+
+  local agent="${args[0]}"
+  local agent_args=()
+  if [[ ${#args[@]} -gt 1 ]]; then
+    agent_args=("${args[@]:1}")
+  fi
+
+  # Resolve agent to full path
+  local agent_path
+  agent_path="$(command -v "$agent" 2>/dev/null)" || die "Agent not found: $agent"
+  debug "Agent resolved: $agent_path"
+
+  # Discover secrets file
+  local secrets_file
+  if ! secrets_file="$(discover_secrets_file)"; then
+    die "No secrets file found. Run '$PROGRAM init' to create one, or use --env FILE."
+  fi
+
+  info "Secrets: $secrets_file"
+
+  local mode
+  mode="$(detect_mode "$secrets_file")"
+  debug "Mode: $mode"
+
+  case "$mode" in
+    sops)
+      check_sops_deps || exit 1
+      info "Loading secrets via SOPS..."
+      if [[ ${#agent_args[@]} -gt 0 ]]; then
+        exec sops exec-env "$secrets_file" "'$agent_path' ${agent_args[*]}"
+      else
+        exec sops exec-env "$secrets_file" "'$agent_path'"
+      fi
+      ;;
+    dotenv)
+      info "Loading secrets via dotenv..."
+      set -a
+      # shellcheck source=/dev/null
+      source "$secrets_file"
+      set +a
+      debug "Secrets loaded, exec-ing $agent_path"
+      if [[ ${#agent_args[@]} -gt 0 ]]; then
+        exec "$agent_path" "${agent_args[@]}"
+      else
+        exec "$agent_path"
+      fi
+      ;;
+    *)
+      die "Unknown mode: $mode"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: init
+# ---------------------------------------------------------------------------
+cmd_init() {
+  local use_sops=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sops) use_sops=1; shift ;;
+      *)      die "Unknown init option: $1" ;;
+    esac
+  done
+
+  if [[ "$use_sops" -eq 1 ]]; then
+    local target=".sops.env"
+    if [[ -f "$target" ]]; then
+      die "$target already exists"
+    fi
+
+    check_sops_deps || exit 1
+
+    # Check for .sops.yaml config
+    if [[ ! -f ".sops.yaml" ]]; then
+      warn "No .sops.yaml found. Creating a default one..."
+
+      local age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+      local age_pub=""
+
+      if [[ -f "$age_key_file" ]]; then
+        age_pub="$(grep -o 'age1[a-z0-9]*' "$age_key_file" | head -1)" || true
+      fi
+
+      if [[ -z "$age_pub" ]]; then
+        warn "No age key found. Generate one with: age-keygen -o $age_key_file"
+        warn "Then add the public key to .sops.yaml"
+        age_pub="age1your-public-key-here"
+      fi
+
+      cat > .sops.yaml <<EOF
+creation_rules:
+  - path_regex: \.sops\.env$
+    age: >-
+      $age_pub
+EOF
+      success "Created .sops.yaml"
+    fi
+
+    # Create an empty encrypted file
+    printf "# Add your secrets below\n# KEY=value\n" | sops --encrypt --input-type dotenv --output-type dotenv /dev/stdin > "$target" 2>/dev/null \
+      || printf "# Add your secrets below (encrypt with: sops --encrypt --in-place %s)\n# KEY=value\n" "$target" > "$target"
+
+    success "Created $target"
+    info "Edit with: $PROGRAM edit"
+  else
+    local target=".env"
+    if [[ -f "$target" ]]; then
+      die "$target already exists"
+    fi
+
+    cat > "$target" <<'EOF'
+# agent-env secrets — loaded automatically by agent-env
+# Add API keys and secrets below
+#
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+# GITHUB_TOKEN=ghp_...
+EOF
+
+    success "Created $target"
+    info "Edit with: \$EDITOR $target"
+
+    # Ensure .gitignore includes .env
+    if [[ -f ".gitignore" ]]; then
+      if ! grep -qx '.env' .gitignore 2>/dev/null; then
+        echo '.env' >> .gitignore
+        info "Added .env to .gitignore"
+      fi
+    else
+      echo '.env' > .gitignore
+      info "Created .gitignore with .env"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: edit
+# ---------------------------------------------------------------------------
+cmd_edit() {
+  local secrets_file
+  if ! secrets_file="$(discover_secrets_file)"; then
+    die "No secrets file found. Run '$PROGRAM init' to create one."
+  fi
+
+  local mode
+  mode="$(detect_mode "$secrets_file")"
+
+  case "$mode" in
+    sops)
+      check_sops_deps || exit 1
+      info "Opening SOPS editor for $secrets_file..."
+      exec sops "$secrets_file"
+      ;;
+    dotenv)
+      local editor="${EDITOR:-${VISUAL:-vi}}"
+      info "Opening $secrets_file with $editor..."
+      exec "$editor" "$secrets_file"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: view
+# ---------------------------------------------------------------------------
+cmd_view() {
+  local secrets_file
+  if ! secrets_file="$(discover_secrets_file)"; then
+    die "No secrets file found. Run '$PROGRAM init' to create one."
+  fi
+
+  local mode
+  mode="$(detect_mode "$secrets_file")"
+
+  info "Secrets file: $secrets_file (${mode})"
+
+  case "$mode" in
+    sops)
+      check_sops_deps || exit 1
+      sops --decrypt "$secrets_file"
+      ;;
+    dotenv)
+      cat "$secrets_file"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: check
+# ---------------------------------------------------------------------------
+cmd_check() {
+  local all_ok=1
+
+  printf "\n${BOLD}agent-env v%s — environment check${RESET}\n\n" "$VERSION" >&2
+
+  # Secrets file
+  local secrets_file
+  if secrets_file="$(discover_secrets_file)"; then
+    success "Secrets file: $secrets_file"
+
+    local mode
+    mode="$(detect_mode "$secrets_file")"
+    success "Format: $mode"
+
+    if [[ "$mode" == "sops" ]]; then
+      # Check SOPS deps
+      if command_exists sops; then
+        success "sops: $(sops --version 2>&1 | head -1)"
+      else
+        error "sops: not installed"
+        all_ok=0
+      fi
+
+      if command_exists age; then
+        success "age: $(age --version 2>&1 | head -1)"
+      else
+        warn "age: not installed (may be needed for decryption)"
+      fi
+
+      # Check age key
+      local age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+      if [[ -f "$age_key_file" ]]; then
+        success "Age key: $age_key_file"
+      else
+        warn "Age key: not found at $age_key_file"
+      fi
+
+      # Try decryption
+      if command_exists sops; then
+        if sops --decrypt "$secrets_file" &>/dev/null; then
+          success "Decryption: working"
+        else
+          error "Decryption: failed (check keys)"
+          all_ok=0
+        fi
+      fi
+    else
+      # Dotenv — check for common issues
+      if [[ -r "$secrets_file" ]]; then
+        success "File readable: yes"
+      else
+        error "File readable: no"
+        all_ok=0
+      fi
+
+      local line_count
+      line_count="$(grep -cve '^\s*$' -e '^\s*#' "$secrets_file" 2>/dev/null)" || line_count=0
+      info "Secret entries: $line_count"
+    fi
+  else
+    warn "No secrets file found"
+    info "Run '$PROGRAM init' to create one"
+    all_ok=0
+  fi
+
+  # Git safety
+  if git rev-parse --is-inside-work-tree &>/dev/null; then
+    if [[ -f .gitignore ]]; then
+      if grep -qx '.env' .gitignore 2>/dev/null; then
+        success ".gitignore: .env is excluded"
+      else
+        warn ".gitignore: .env is NOT excluded — secrets may be committed!"
+      fi
+    else
+      warn "No .gitignore found"
+    fi
+  fi
+
+  printf "\n" >&2
+  if [[ "$all_ok" -eq 1 ]]; then
+    success "All checks passed"
+  else
+    error "Some checks failed"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: upgrade
+# ---------------------------------------------------------------------------
+cmd_upgrade() {
+  local install_dir="${AGENT_ENV_HOME:-$HOME/.local/share/agent-env}"
+
+  if [[ ! -d "$install_dir/.git" ]]; then
+    die "Not a git-based install. Reinstall with: curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash"
+  fi
+
+  info "Updating from git..."
+  git -C "$install_dir" pull --ff-only || die "Git pull failed"
+  success "Upgraded to $(git -C "$install_dir" describe --tags --always 2>/dev/null || echo 'latest')"
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: help
+# ---------------------------------------------------------------------------
+cmd_help() {
+  cat <<EOF
+${BOLD}agent-env${RESET} v${VERSION} — Universal secret injection for AI coding agents
+
+${BOLD}USAGE${RESET}
+  $PROGRAM <command> [options]
+
+${BOLD}COMMANDS${RESET}
+  ${GREEN}run${RESET} <agent> [args...]   Inject secrets and launch an AI agent
+  ${GREEN}init${RESET} [--sops]           Create a new secrets file (.env or .sops.env)
+  ${GREEN}edit${RESET}                    Edit secrets file (sops edit or \$EDITOR)
+  ${GREEN}view${RESET}                    View decrypted secrets
+  ${GREEN}check${RESET}                   Verify setup (files, tools, keys)
+  ${GREEN}upgrade${RESET}                 Self-update from git
+  ${GREEN}version${RESET}                 Print version
+  ${GREEN}help${RESET}                    Show this help
+
+${BOLD}RUN OPTIONS${RESET}
+  -v, --verbose         Show discovery and loading steps
+  --env FILE            Use a specific secrets file
+  --secrets FILE        Alias for --env
+  --sops                Force SOPS mode
+  --dotenv              Force dotenv mode
+
+${BOLD}EXAMPLES${RESET}
+  $PROGRAM run claude                    # Run Claude Code with secrets
+  $PROGRAM run --verbose aider           # Run Aider with verbose output
+  $PROGRAM run --env ~/.secrets codex    # Use specific secrets file
+  $PROGRAM init                          # Create .env in current directory
+  $PROGRAM init --sops                   # Create encrypted .sops.env
+  $PROGRAM check                         # Verify everything is set up
+
+${BOLD}FILE DISCOVERY${RESET}
+  Searches for .sops.env or .env (SOPS preferred) in:
+    1. Current directory, walking up to git root
+    2. \$XDG_CONFIG_HOME/agent-env/  (~/.config/agent-env/)
+    3. Home directory
+
+${BOLD}MORE INFO${RESET}
+  https://github.com/jordanburke/agent-env
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: version
+# ---------------------------------------------------------------------------
+cmd_version() {
+  printf "%s %s\n" "$PROGRAM" "$VERSION"
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+# ---------------------------------------------------------------------------
+main() {
+  if [[ $# -eq 0 ]]; then
+    cmd_help
+    exit 0
+  fi
+
+  local command="$1"
+  shift
+
+  case "$command" in
+    run)      cmd_run "$@" ;;
+    init)     cmd_init "$@" ;;
+    edit)     cmd_edit "$@" ;;
+    view)     cmd_view "$@" ;;
+    check)    cmd_check "$@" ;;
+    upgrade)  cmd_upgrade "$@" ;;
+    version)  cmd_version "$@" ;;
+    help|-h|--help) cmd_help "$@" ;;
+    -v|--version)   cmd_version "$@" ;;
+    *)
+      error "Unknown command: $command"
+      printf "\nRun '${BOLD}%s help${RESET}' for usage.\n" "$PROGRAM" >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
