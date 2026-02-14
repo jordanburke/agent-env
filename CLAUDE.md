@@ -80,7 +80,7 @@ agent-env/
   README.md           # full documentation
   CLAUDE.md           # this file
   LICENSE             # MIT
-  www/                # Astro landing page
+  site/               # Astro landing page
     src/
       pages/index.astro
       components/       # Hero, Problem, HowItWorks, AgentGrid, Install, Footer
@@ -101,7 +101,7 @@ echo "TEST_VAR=hello" > /tmp/test.env
 
 ### Landing Page
 ```bash
-cd www
+cd site
 pnpm install
 pnpm dev              # dev server
 pnpm build            # static build

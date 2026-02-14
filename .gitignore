@@ -19,8 +19,8 @@
 node_modules/
 
 # Build output
-www/dist/
-www/.astro/
+site/dist/
+site/.astro/
 
 # OS
 .DS_Store
