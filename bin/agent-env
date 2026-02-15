@@ -6,7 +6,7 @@ set -euo pipefail
 # https://github.com/jordanburke/agent-env
 # ============================================================================
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 PROGRAM="agent-env"
 
 # Colors (disabled if neither stdout nor stderr is a terminal)
@@ -26,6 +26,7 @@ fi
 VERBOSE=0
 FORCE_MODE=""       # "sops" or "dotenv" or ""
 EXPLICIT_FILE=""    # user-specified secrets file
+NO_GLOBAL=0         # skip global secrets layer
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -54,7 +55,12 @@ git_root() {
 
 is_sops_file() {
   local file="$1"
-  [[ -f "$file" ]] && head -5 "$file" | grep -q "^sops:"
+  [[ -f "$file" ]] || return 1
+  # SOPS YAML format starts with "sops:" metadata block
+  # SOPS dotenv format has "sops_version=" and "ENC[" markers
+  head -5 "$file" | grep -q "^sops:" && return 0
+  grep -q "^sops_version=" "$file" && return 0
+  return 1
 }
 
 detect_mode() {
@@ -71,11 +77,13 @@ detect_mode() {
 # ---------------------------------------------------------------------------
 # File Discovery
 #
-# Walk from PWD up to git root (or filesystem root), then check global
-# fallback locations. SOPS files take priority over dotenv when both exist
-# in the same directory.
+# Split into project-level and global discovery for layered loading.
+# SOPS files take priority over dotenv when both exist in the same directory.
 # ---------------------------------------------------------------------------
-discover_secrets_file() {
+
+# Discover project-level secrets: walk from PWD up to git root.
+# Does NOT check global fallback locations.
+discover_project_file() {
   if [[ -n "$EXPLICIT_FILE" ]]; then
     if [[ -f "$EXPLICIT_FILE" ]]; then
       echo "$EXPLICIT_FILE"
@@ -91,30 +99,26 @@ discover_secrets_file() {
   local dir
   dir="$(pwd -P)"
 
-  # Walk up the directory tree
   while true; do
-    debug "Searching: $dir"
+    debug "Searching project: $dir"
 
-    # SOPS takes priority
     if [[ -f "$dir/.sops.env" ]]; then
-      debug "Found: $dir/.sops.env"
+      debug "Found project: $dir/.sops.env"
       echo "$dir/.sops.env"
       return 0
     fi
 
     if [[ -f "$dir/.env" ]]; then
-      debug "Found: $dir/.env"
+      debug "Found project: $dir/.env"
       echo "$dir/.env"
       return 0
     fi
 
-    # Stop at git root if we're in a repo
     if [[ -n "$stop_at" && "$dir" == "$stop_at" ]]; then
       debug "Reached git root: $stop_at"
       break
     fi
 
-    # Stop at filesystem root
     local parent
     parent="$(dirname "$dir")"
     if [[ "$parent" == "$dir" ]]; then
@@ -123,7 +127,11 @@ discover_secrets_file() {
     dir="$parent"
   done
 
-  # Global fallback locations
+  return 1
+}
+
+# Discover global secrets: check only global fallback locations.
+discover_global_file() {
   local -a fallbacks=(
     "${XDG_CONFIG_HOME:-$HOME/.config}/agent-env/.sops.env"
     "${XDG_CONFIG_HOME:-$HOME/.config}/agent-env/.env"
@@ -132,9 +140,9 @@ discover_secrets_file() {
   )
 
   for fb in "${fallbacks[@]}"; do
-    debug "Checking fallback: $fb"
+    debug "Checking global: $fb"
     if [[ -f "$fb" ]]; then
-      debug "Found fallback: $fb"
+      debug "Found global: $fb"
       echo "$fb"
       return 0
     fi
@@ -143,10 +151,35 @@ discover_secrets_file() {
   return 1
 }
 
+# Legacy wrapper: find project file first, fall back to global.
+# Used by edit, view, check commands.
+discover_secrets_file() {
+  if discover_project_file; then
+    return 0
+  fi
+  discover_global_file
+}
+
+# ---------------------------------------------------------------------------
+# SOPS Helpers
+# ---------------------------------------------------------------------------
+
+# Ensure SOPS_AGE_KEY_FILE is set if the default key file exists
+ensure_age_key() {
+  if [[ -z "${SOPS_AGE_KEY_FILE:-}" ]]; then
+    local default_key="${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt"
+    if [[ -f "$default_key" ]]; then
+      export SOPS_AGE_KEY_FILE="$default_key"
+      debug "Auto-set SOPS_AGE_KEY_FILE=$default_key"
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Dependency Checks
 # ---------------------------------------------------------------------------
 check_sops_deps() {
+  ensure_age_key
   local ok=1
   if ! command_exists sops; then
     error "sops is required for encrypted secrets but not found"
@@ -161,6 +194,45 @@ check_sops_deps() {
 }
 
 # ---------------------------------------------------------------------------
+# Secret Loading
+#
+# Loads a secrets file into the current environment. For SOPS files, decrypts
+# to a temp file, sources it, then cleans up. For dotenv, sources directly.
+# ---------------------------------------------------------------------------
+load_secrets_file() {
+  local file="$1"
+  local label="${2:-secrets}"
+
+  local mode
+  mode="$(detect_mode "$file")"
+  debug "Loading $label: $file (${mode})"
+
+  case "$mode" in
+    sops)
+      check_sops_deps || exit 1
+      local tmpfile
+      tmpfile="$(mktemp "${TMPDIR:-/tmp}/agent-env.XXXXXX")"
+      trap "rm -f '$tmpfile'" EXIT
+      sops --decrypt --output-type dotenv "$file" > "$tmpfile" || die "Failed to decrypt $file"
+      set -a
+      # shellcheck source=/dev/null
+      source "$tmpfile"
+      set +a
+      rm -f "$tmpfile"
+      ;;
+    dotenv)
+      set -a
+      # shellcheck source=/dev/null
+      source "$file"
+      set +a
+      ;;
+    *)
+      die "Unknown mode: $mode"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # Subcommand: run
 # ---------------------------------------------------------------------------
 cmd_run() {
@@ -172,6 +244,7 @@ cmd_run() {
       --dotenv)     FORCE_MODE="dotenv"; shift ;;
       --env|--secrets) EXPLICIT_FILE="$2"; shift 2 ;;
       --env=*|--secrets=*) EXPLICIT_FILE="${1#*=}"; shift ;;
+      --no-global)  NO_GLOBAL=1; shift ;;
       -*)           die "Unknown run option: $1 (use '$PROGRAM help' for usage)" ;;
       *)            args+=("$@"); break ;;
     esac
@@ -192,44 +265,43 @@ cmd_run() {
   agent_path="$(command -v "$agent" 2>/dev/null)" || die "Agent not found: $agent"
   debug "Agent resolved: $agent_path"
 
-  # Discover secrets file
-  local secrets_file
-  secrets_file="$(discover_secrets_file)" || \
+  # Discover secrets files (layered: global base + project overlay)
+  local global_file="" project_file=""
+
+  if [[ "$NO_GLOBAL" -eq 0 ]]; then
+    global_file="$(discover_global_file)" || true
+  fi
+
+  project_file="$(discover_project_file)" || true
+
+  # If project file is the same as global file, don't double-load
+  if [[ -n "$project_file" && "$project_file" == "$global_file" ]]; then
+    global_file=""
+  fi
+
+  if [[ -z "$global_file" && -z "$project_file" ]]; then
     die "No secrets file found. Run '$PROGRAM init' to create one, or use --env FILE."
+  fi
 
-  info "Secrets: $secrets_file"
+  # Layer 1: Global secrets (base)
+  if [[ -n "$global_file" ]]; then
+    info "Global:  $global_file"
+    load_secrets_file "$global_file" "global"
+  fi
 
-  local mode
-  mode="$(detect_mode "$secrets_file")"
-  debug "Mode: $mode"
+  # Layer 2: Project secrets (overlay — overrides global)
+  if [[ -n "$project_file" ]]; then
+    info "Project: $project_file"
+    load_secrets_file "$project_file" "project"
+  fi
 
-  case "$mode" in
-    sops)
-      check_sops_deps || exit 1
-      info "Loading secrets via SOPS..."
-      if [[ ${#agent_args[@]} -gt 0 ]]; then
-        exec sops exec-env "$secrets_file" "'$agent_path' ${agent_args[*]}"
-      else
-        exec sops exec-env "$secrets_file" "'$agent_path'"
-      fi
-      ;;
-    dotenv)
-      info "Loading secrets via dotenv..."
-      set -a
-      # shellcheck source=/dev/null
-      source "$secrets_file"
-      set +a
-      debug "Secrets loaded, exec-ing $agent_path"
-      if [[ ${#agent_args[@]} -gt 0 ]]; then
-        exec "$agent_path" "${agent_args[@]}"
-      else
-        exec "$agent_path"
-      fi
-      ;;
-    *)
-      die "Unknown mode: $mode"
-      ;;
-  esac
+  # Exec the agent
+  debug "Secrets loaded, exec-ing $agent_path"
+  if [[ ${#agent_args[@]} -gt 0 ]]; then
+    exec "$agent_path" "${agent_args[@]}"
+  else
+    exec "$agent_path"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -369,67 +441,93 @@ cmd_view() {
 # ---------------------------------------------------------------------------
 cmd_check() {
   local all_ok=1
+  ensure_age_key
 
   printf "\n${BOLD}agent-env v%s — environment check${RESET}\n\n" "$VERSION" >&2
 
-  # Secrets file
-  local secrets_file
-  if secrets_file="$(discover_secrets_file)"; then
-    success "Secrets file: $secrets_file"
+  # Check a single secrets file and report status
+  _check_file() {
+    local label="$1" file="$2"
+
+    printf "  ${BOLD}%s${RESET}\n" "$label" >&2
 
     local mode
-    mode="$(detect_mode "$secrets_file")"
-    success "Format: $mode"
+    mode="$(detect_mode "$file")"
+    success "  File: $file (${mode})"
 
     if [[ "$mode" == "sops" ]]; then
-      # Check SOPS deps
       if command_exists sops; then
-        success "sops: $(sops --version 2>&1 | head -1)"
-      else
-        error "sops: not installed"
-        all_ok=0
-      fi
-
-      if command_exists age; then
-        success "age: $(age --version 2>&1 | head -1)"
-      else
-        warn "age: not installed (may be needed for decryption)"
-      fi
-
-      # Check age key
-      local age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
-      if [[ -f "$age_key_file" ]]; then
-        success "Age key: $age_key_file"
-      else
-        warn "Age key: not found at $age_key_file"
-      fi
-
-      # Try decryption
-      if command_exists sops; then
-        if sops --decrypt "$secrets_file" &>/dev/null; then
-          success "Decryption: working"
+        if sops --decrypt "$file" &>/dev/null; then
+          success "  Decryption: working"
         else
-          error "Decryption: failed (check keys)"
+          error "  Decryption: failed (check keys)"
           all_ok=0
         fi
-      fi
-    else
-      # Dotenv — check for common issues
-      if [[ -r "$secrets_file" ]]; then
-        success "File readable: yes"
       else
-        error "File readable: no"
+        error "  sops: not installed"
         all_ok=0
       fi
-
+    else
+      if [[ -r "$file" ]]; then
+        success "  File readable: yes"
+      else
+        error "  File readable: no"
+        all_ok=0
+      fi
       local line_count
-      line_count="$(grep -cve '^\s*$' -e '^\s*#' "$secrets_file" 2>/dev/null)" || line_count=0
-      info "Secret entries: $line_count"
+      line_count="$(grep -cve '^\s*$' -e '^\s*#' "$file" 2>/dev/null)" || line_count=0
+      info "  Secret entries: $line_count"
     fi
+    printf "\n" >&2
+  }
+
+  # Layered discovery
+  local global_file="" project_file=""
+  global_file="$(discover_global_file)" || true
+  project_file="$(discover_project_file)" || true
+
+  if [[ -n "$project_file" && "$project_file" == "$global_file" ]]; then
+    global_file=""
+  fi
+
+  if [[ -n "$global_file" ]]; then
+    _check_file "Global layer" "$global_file"
   else
-    warn "No secrets file found"
+    info "Global: none found (${XDG_CONFIG_HOME:-$HOME/.config}/agent-env/)"
+    printf "\n" >&2
+  fi
+
+  if [[ -n "$project_file" ]]; then
+    _check_file "Project layer" "$project_file"
+  else
+    info "Project: none found (searched PWD → git root)"
+    printf "\n" >&2
+  fi
+
+  if [[ -z "$global_file" && -z "$project_file" ]]; then
+    warn "No secrets file found at any layer"
     info "Run '$PROGRAM init' to create one"
     all_ok=0
+  fi
+
+  # Tool dependencies
+  if command_exists sops; then
+    success "sops: $(sops --version 2>&1 | head -1)"
+  else
+    warn "sops: not installed (needed for encrypted secrets)"
+  fi
+
+  if command_exists age; then
+    success "age: $(age --version 2>&1 | head -1)"
+  else
+    warn "age: not installed (needed for age-encrypted SOPS files)"
+  fi
+
+  local age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+  if [[ -f "$age_key_file" ]]; then
+    success "Age key: $age_key_file"
+  else
+    warn "Age key: not found at $age_key_file"
   fi
 
   # Git safety
@@ -568,21 +666,29 @@ ${BOLD}RUN OPTIONS${RESET}
   --secrets FILE        Alias for --env
   --sops                Force SOPS mode
   --dotenv              Force dotenv mode
+  --no-global           Skip loading global secrets layer
 
 ${BOLD}EXAMPLES${RESET}
   $PROGRAM claude                        # Run Claude Code with secrets (shorthand)
   $PROGRAM run claude                    # Same thing, explicit form
   $PROGRAM run --verbose aider           # Run Aider with verbose output
   $PROGRAM run --env ~/.secrets codex    # Use specific secrets file
+  $PROGRAM run --no-global claude        # Skip global layer
   $PROGRAM init                          # Create .env in current directory
   $PROGRAM init --sops                   # Create encrypted .sops.env
   $PROGRAM check                         # Verify everything is set up
 
-${BOLD}FILE DISCOVERY${RESET}
-  Searches for .sops.env or .env (SOPS preferred) in:
-    1. Current directory, walking up to git root
-    2. \$XDG_CONFIG_HOME/agent-env/  (~/.config/agent-env/)
-    3. Home directory
+${BOLD}LAYERED SECRETS${RESET}
+  Secrets load in two layers (project values override global):
+
+  Layer 1 — Global (base):
+    \$XDG_CONFIG_HOME/agent-env/.sops.env  (~/.config/agent-env/.sops.env)
+    \$XDG_CONFIG_HOME/agent-env/.env       (~/.config/agent-env/.env)
+    ~/.sops.env
+    ~/.env
+
+  Layer 2 — Project (overlay):
+    Current directory, walking up to git root (.sops.env or .env)
 
 ${BOLD}MORE INFO${RESET}
   https://github.com/jordanburke/agent-env
