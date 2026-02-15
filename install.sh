@@ -32,6 +32,7 @@ warn()    { printf "${YELLOW}warn${RESET}  %s\n" "$*"; }
 
 # Detect if running from a local clone or piped from curl
 is_local_install() {
+  [[ -n "${BASH_SOURCE[0]:-}" ]] || return 1
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   [[ -f "$script_dir/bin/agent-env" ]]
@@ -39,7 +40,7 @@ is_local_install() {
 
 install_from_local() {
   local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd)"
 
   info "Installing from local clone: $script_dir"
 
@@ -107,7 +108,7 @@ main() {
   printf "\n${BOLD}Quick start:${RESET}\n"
   printf "  agent-env init           # Create .env in your project\n"
   printf "  agent-env init --sops    # Create encrypted .sops.env\n"
-  printf "  agent-env run claude     # Launch Claude with secrets\n\n"
+  printf "  agent-env claude         # Launch Claude with secrets\n\n"
 }
 
 main "$@"
