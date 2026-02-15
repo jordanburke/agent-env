@@ -10,12 +10,19 @@ AGENT_ENV="$BATS_TEST_DIRNAME/../bin/agent-env"
 setup() {
   TEST_DIR="$(mktemp -d)"
   ORIG_HOME="$HOME"
+  ORIG_XDG="${XDG_CONFIG_HOME:-}"
   export HOME="$TEST_DIR/home"
+  export XDG_CONFIG_HOME="$HOME/.config"
   mkdir -p "$HOME"
 }
 
 teardown() {
   export HOME="$ORIG_HOME"
+  if [[ -n "$ORIG_XDG" ]]; then
+    export XDG_CONFIG_HOME="$ORIG_XDG"
+  else
+    unset XDG_CONFIG_HOME
+  fi
   rm -rf "$TEST_DIR"
 }
 
@@ -135,8 +142,7 @@ teardown() {
   local isolated
   isolated="$(mktemp -d)"
   cd "$isolated"
-  # Unset XDG_CONFIG_HOME so fallback uses $HOME/.config
-  run env -u XDG_CONFIG_HOME "$AGENT_ENV" run env
+  run "$AGENT_ENV" run env
   rm -rf "$isolated"
   [ "$status" -eq 0 ]
   [[ "$output" == *"GLOBAL_SECRET=global"* ]]
@@ -435,19 +441,14 @@ EOF
 }
 
 @test "is_local_install returns false when not in a clone directory" {
-  # Create a script in a directory WITHOUT bin/agent-env
-  # BASH_SOURCE[0] will naturally point to this script
+  # Test the detection logic inline (no function) to avoid BASH_SOURCE
+  # stack differences across bash versions
   local empty_dir="$TEST_DIR/not-a-clone"
   mkdir -p "$empty_dir"
   cat > "$empty_dir/test_install.sh" <<'SCRIPT'
 #!/usr/bin/env bash
-is_local_install() {
-  [[ -n "${BASH_SOURCE[0]:-}" ]] || return 1
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  [[ -f "$script_dir/bin/agent-env" ]]
-}
-if is_local_install; then
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$script_dir/bin/agent-env" ]]; then
   echo "detected_local"
 else
   echo "detected_remote"
