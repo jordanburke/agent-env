@@ -131,8 +131,12 @@ teardown() {
 @test "falls back to ~/.config/agent-env/.env" {
   mkdir -p "$HOME/.config/agent-env"
   echo "GLOBAL_SECRET=global" > "$HOME/.config/agent-env/.env"
-  cd "$TEST_DIR"
+  # Use an isolated temp dir outside any git repo
+  local isolated
+  isolated="$(mktemp -d)"
+  cd "$isolated"
   run "$AGENT_ENV" run env
+  rm -rf "$isolated"
   [ "$status" -eq 0 ]
   [[ "$output" == *"GLOBAL_SECRET=global"* ]]
 }
@@ -278,8 +282,8 @@ EOF
   cp "$AGENT_ENV" "$fake_repo/bin/agent-env"
   chmod +x "$fake_repo/bin/agent-env"
   git -C "$fake_repo" init --quiet
-  git -C "$fake_repo" add -A
-  git -C "$fake_repo" commit -m "init" --quiet
+  git -C "$fake_repo" -c user.name="Test" -c user.email="test@test.com" add -A
+  git -C "$fake_repo" -c user.name="Test" -c user.email="test@test.com" commit -m "init" --quiet
 
   # Add a bare remote so git pull --ff-only works
   local bare_repo="$TEST_DIR/bare-remote.git"
@@ -430,6 +434,7 @@ EOF
 }
 
 @test "install.sh does not crash when piped (no BASH_SOURCE)" {
+  # Simulate piped execution where BASH_SOURCE[0] is empty
   run bash -c '
     is_local_install() {
       [[ -n "${BASH_SOURCE[0]:-}" ]] || return 1
@@ -437,7 +442,8 @@ EOF
       script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
       [[ -f "$script_dir/bin/agent-env" ]]
     }
-    BASH_SOURCE=()
+    # In piped mode, BASH_SOURCE[0] is empty string, not unset
+    unset BASH_SOURCE 2>/dev/null || true
     if is_local_install; then
       echo "detected_local"
     else
