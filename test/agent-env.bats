@@ -435,23 +435,26 @@ EOF
 }
 
 @test "is_local_install returns false when not in a clone directory" {
-  # When run from a directory without bin/agent-env, should return false
+  # Create a script in a directory WITHOUT bin/agent-env
+  # BASH_SOURCE[0] will naturally point to this script
   local empty_dir="$TEST_DIR/not-a-clone"
   mkdir -p "$empty_dir"
-  run bash -c "
-    is_local_install() {
-      [[ -n \"\${BASH_SOURCE[0]:-}\" ]] || return 1
-      local script_dir
-      script_dir=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
-      [[ -f \"\$script_dir/bin/agent-env\" ]]
-    }
-    BASH_SOURCE[0]='$empty_dir/install.sh'
-    if is_local_install; then
-      echo 'detected_local'
-    else
-      echo 'detected_remote'
-    fi
-  "
+  cat > "$empty_dir/test_install.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+is_local_install() {
+  [[ -n "${BASH_SOURCE[0]:-}" ]] || return 1
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  [[ -f "$script_dir/bin/agent-env" ]]
+}
+if is_local_install; then
+  echo "detected_local"
+else
+  echo "detected_remote"
+fi
+SCRIPT
+  chmod +x "$empty_dir/test_install.sh"
+  run bash "$empty_dir/test_install.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"detected_remote"* ]]
 }
