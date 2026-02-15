@@ -1,0 +1,65 @@
+# agent-env
+
+> Universal secret injection for AI coding agents. One command. Every agent. Secrets stay out of your shell history.
+
+agent-env is a single bash script that loads secrets from `.env` (dotenv) or `.sops.env` (SOPS-encrypted) files and injects them into an AI agent's environment via `exec`. It works with any agent that runs as a CLI process.
+
+## Docs
+
+- [Full Documentation](https://raw.githubusercontent.com/jordanburke/agent-env/main/README.md): Complete README with install, usage, architecture, and CLI reference
+- [GitHub Repository](https://github.com/jordanburke/agent-env): Source code and issue tracker
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash
+```
+
+## Quick Start
+
+```bash
+agent-env init                  # Create .env
+agent-env run claude            # Run Claude Code with secrets
+agent-env run codex             # Run Codex with secrets
+agent-env run aider             # Run Aider with secrets
+agent-env run <any-cli>         # Any CLI agent
+```
+
+## CLI Commands
+
+- `run <agent> [args...]`: Inject secrets and launch an AI agent
+- `init [--sops]`: Create a new secrets file (.env or .sops.env)
+- `edit`: Edit secrets file (sops edit or $EDITOR)
+- `view`: View decrypted secrets
+- `check`: Verify setup (files, tools, keys)
+- `upgrade`: Self-update from git
+- `uninstall`: Remove agent-env
+- `version`: Print version
+- `help`: Show usage
+
+## Run Options
+
+- `-v, --verbose`: Show discovery and loading steps
+- `--env FILE`: Use a specific secrets file
+- `--secrets FILE`: Alias for --env
+- `--sops`: Force SOPS mode
+- `--dotenv`: Force dotenv mode
+
+## Supported Agents
+
+Claude Code, Codex, Aider, Goose, Cline, Continue, Cursor (CLI), Windsurf (CLI), and any CLI tool.
+
+## File Discovery Order
+
+1. `.sops.env` or `.env` in current directory
+2. Walk up parent directories to git root
+3. `$XDG_CONFIG_HOME/agent-env/` (~/.config/agent-env/)
+4. Home directory (~/.sops.env or ~/.env)
+
+SOPS files take priority over dotenv when both exist.
+
+## Optional
+
+- [Security Model](https://raw.githubusercontent.com/jordanburke/agent-env/main/README.md): Process replacement via exec, no secrets in CLI args, SOPS encryption at rest
+- [SOPS vs Dotenv comparison](https://raw.githubusercontent.com/jordanburke/agent-env/main/README.md): When to use plaintext vs encrypted secrets
+- [MCP Server integration](https://raw.githubusercontent.com/jordanburke/agent-env/main/README.md): Wrapping MCP server commands with agent-env
