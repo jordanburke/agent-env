@@ -28,7 +28,7 @@ const agents = [
             class="group rounded-lg border border-border-subtle bg-surface-raised p-4 text-center transition-colors hover:border-terminal-green/40"
           >
             <div class="mb-2 text-sm font-semibold text-gray-200 group-hover:text-white">{agent.name}</div>
-            <code class="text-xs text-terminal-green">agent-env run {agent.cmd}</code>
+            <code class="text-xs text-terminal-green">agent-env {agent.cmd}</code>
           </a>
         ))
       }
@@ -36,7 +36,7 @@ const agents = [
 
     <div class="mt-6 text-center">
       <code class="rounded bg-surface-raised px-4 py-2 text-sm text-terminal-dim">
-        agent-env run &lt;any-command&gt;
+        agent-env &lt;any-command&gt;
       </code>
     </div>
   </div>

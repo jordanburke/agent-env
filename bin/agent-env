@@ -500,7 +500,8 @@ ${BOLD}RUN OPTIONS${RESET}
   --dotenv              Force dotenv mode
 
 ${BOLD}EXAMPLES${RESET}
-  $PROGRAM run claude                    # Run Claude Code with secrets
+  $PROGRAM claude                        # Run Claude Code with secrets (shorthand)
+  $PROGRAM run claude                    # Same thing, explicit form
   $PROGRAM run --verbose aider           # Run Aider with verbose output
   $PROGRAM run --env ~/.secrets codex    # Use specific secrets file
   $PROGRAM init                          # Create .env in current directory
@@ -548,9 +549,8 @@ main() {
     help|-h|--help) cmd_help "$@" ;;
     -v|--version)   cmd_version "$@" ;;
     *)
-      error "Unknown command: $command"
-      printf "\nRun '${BOLD}%s help${RESET}' for usage.\n" "$PROGRAM" >&2
-      exit 1
+      # Treat unknown commands as implicit "run" — e.g. "agent-env claude" → "agent-env run claude"
+      cmd_run "$command" "$@"
       ;;
   esac
 }
