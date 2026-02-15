@@ -135,7 +135,8 @@ teardown() {
   local isolated
   isolated="$(mktemp -d)"
   cd "$isolated"
-  run "$AGENT_ENV" run env
+  # Unset XDG_CONFIG_HOME so fallback uses $HOME/.config
+  run env -u XDG_CONFIG_HOME "$AGENT_ENV" run env
   rm -rf "$isolated"
   [ "$status" -eq 0 ]
   [[ "$output" == *"GLOBAL_SECRET=global"* ]]
@@ -433,23 +434,24 @@ EOF
   [[ "$output" == *"local_install=true"* ]]
 }
 
-@test "install.sh does not crash when piped (no BASH_SOURCE)" {
-  # Simulate piped execution where BASH_SOURCE[0] is empty
-  run bash -c '
+@test "is_local_install returns false when not in a clone directory" {
+  # When run from a directory without bin/agent-env, should return false
+  local empty_dir="$TEST_DIR/not-a-clone"
+  mkdir -p "$empty_dir"
+  run bash -c "
     is_local_install() {
-      [[ -n "${BASH_SOURCE[0]:-}" ]] || return 1
+      [[ -n \"\${BASH_SOURCE[0]:-}\" ]] || return 1
       local script_dir
-      script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      [[ -f "$script_dir/bin/agent-env" ]]
+      script_dir=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
+      [[ -f \"\$script_dir/bin/agent-env\" ]]
     }
-    # In piped mode, BASH_SOURCE[0] is empty string, not unset
-    unset BASH_SOURCE 2>/dev/null || true
+    BASH_SOURCE[0]='$empty_dir/install.sh'
     if is_local_install; then
-      echo "detected_local"
+      echo 'detected_local'
     else
-      echo "detected_remote"
+      echo 'detected_remote'
     fi
-  '
+  "
   [ "$status" -eq 0 ]
   [[ "$output" == *"detected_remote"* ]]
 }
