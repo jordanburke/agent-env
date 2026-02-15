@@ -89,6 +89,10 @@ agent-env/
 
 ### Testing
 ```bash
+# Full test suite (requires bats-core: brew install bats-core)
+bats test/agent-env.bats
+
+# Quick smoke tests
 bash -n bin/agent-env              # syntax check
 ./bin/agent-env help               # show usage
 ./bin/agent-env version            # show version

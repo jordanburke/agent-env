@@ -33,7 +33,7 @@ EXPLICIT_FILE=""    # user-specified secrets file
 info()    { printf "${BLUE}info${RESET}  %s\n" "$*" >&2; }
 warn()    { printf "${YELLOW}warn${RESET}  %s\n" "$*" >&2; }
 error()   { printf "${RED}error${RESET} %s\n" "$*" >&2; }
-debug()   { [[ "$VERBOSE" -eq 1 ]] && printf "${DIM}debug %s${RESET}\n" "$*" >&2; }
+debug()   { [[ "$VERBOSE" -eq 1 ]] && printf "${DIM}debug %s${RESET}\n" "$*" >&2 || true; }
 success() { printf "${GREEN}ok${RESET}    %s\n" "$*" >&2; }
 
 die() {
@@ -89,7 +89,7 @@ discover_secrets_file() {
   stop_at="$(git_root)" || stop_at=""
 
   local dir
-  dir="$(pwd)"
+  dir="$(pwd -P)"
 
   # Walk up the directory tree
   while true; do
@@ -194,9 +194,8 @@ cmd_run() {
 
   # Discover secrets file
   local secrets_file
-  if ! secrets_file="$(discover_secrets_file)"; then
+  secrets_file="$(discover_secrets_file)" || \
     die "No secrets file found. Run '$PROGRAM init' to create one, or use --env FILE."
-  fi
 
   info "Secrets: $secrets_file"
 
@@ -321,9 +320,8 @@ EOF
 # ---------------------------------------------------------------------------
 cmd_edit() {
   local secrets_file
-  if ! secrets_file="$(discover_secrets_file)"; then
+  secrets_file="$(discover_secrets_file)" || \
     die "No secrets file found. Run '$PROGRAM init' to create one."
-  fi
 
   local mode
   mode="$(detect_mode "$secrets_file")"
@@ -347,9 +345,8 @@ cmd_edit() {
 # ---------------------------------------------------------------------------
 cmd_view() {
   local secrets_file
-  if ! secrets_file="$(discover_secrets_file)"; then
+  secrets_file="$(discover_secrets_file)" || \
     die "No secrets file found. Run '$PROGRAM init' to create one."
-  fi
 
   local mode
   mode="$(detect_mode "$secrets_file")"
@@ -461,15 +458,87 @@ cmd_check() {
 # Subcommand: upgrade
 # ---------------------------------------------------------------------------
 cmd_upgrade() {
-  local install_dir="${AGENT_ENV_HOME:-$HOME/.local/share/agent-env}"
+  # Find the repo: follow our own symlink, or use AGENT_ENV_HOME
+  local install_dir=""
+  local self="$HOME/.local/bin/agent-env"
 
-  if [[ ! -d "$install_dir/.git" ]]; then
-    die "Not a git-based install. Reinstall with: curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash"
+  if [[ -L "$self" ]]; then
+    local target
+    target="$(readlink "$self")"
+    # target is e.g. /path/to/clone/bin/agent-env — go up two levels
+    local resolved
+    resolved="$(cd "$(dirname "$target")/.." && pwd)"
+    if [[ -d "$resolved/.git" ]]; then
+      install_dir="$resolved"
+    fi
   fi
 
-  info "Updating from git..."
+  if [[ -z "$install_dir" ]]; then
+    install_dir="${AGENT_ENV_HOME:-$HOME/.local/share/agent-env}"
+  fi
+
+  if [[ ! -d "$install_dir/.git" ]]; then
+    die "Cannot find agent-env git repo. Reinstall with: curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash"
+  fi
+
+  info "Updating from $install_dir..."
   git -C "$install_dir" pull --ff-only || die "Git pull failed"
   success "Upgraded to $(git -C "$install_dir" describe --tags --always 2>/dev/null || echo 'latest')"
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand: uninstall
+# ---------------------------------------------------------------------------
+cmd_uninstall() {
+  local auto_yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -y|--yes) auto_yes=1; shift ;;
+      *)        die "Unknown uninstall option: $1" ;;
+    esac
+  done
+
+  local bin_link="$HOME/.local/bin/agent-env"
+
+  printf "\n${BOLD}agent-env uninstaller${RESET}\n\n" >&2
+
+  # Remove symlink / binary
+  if [[ -L "$bin_link" ]]; then
+    rm "$bin_link"
+    success "Removed $bin_link"
+  elif [[ -f "$bin_link" ]]; then
+    rm "$bin_link"
+    success "Removed $bin_link"
+  else
+    info "No binary link found at $bin_link"
+  fi
+
+  # Remove cloned repo (if standard install location)
+  local install_dir="${AGENT_ENV_HOME:-$HOME/.local/share/agent-env}"
+  if [[ -d "$install_dir" ]]; then
+    if [[ "$auto_yes" -eq 1 ]]; then
+      rm -rf "$install_dir"
+      success "Removed $install_dir"
+    else
+      printf "\n  Remove cloned repository at ${BOLD}%s${RESET}? [y/N] " "$install_dir" >&2
+      read -r response
+      if [[ "$response" =~ ^[Yy]$ ]]; then
+        rm -rf "$install_dir"
+        success "Removed $install_dir"
+      else
+        info "Kept $install_dir"
+      fi
+    fi
+  fi
+
+  # What we don't touch
+  printf "\n${YELLOW}The following were NOT removed (your secrets are safe):${RESET}\n" >&2
+  info ".env and .sops.env files in your projects"
+  info "~/.config/agent-env/ (global secrets)"
+  info "~/.config/sops/age/keys.txt (age encryption keys)"
+  info ".sops.yaml files in your projects"
+
+  printf "\n${GREEN}agent-env has been uninstalled.${RESET}\n\n" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -489,6 +558,7 @@ ${BOLD}COMMANDS${RESET}
   ${GREEN}view${RESET}                    View decrypted secrets
   ${GREEN}check${RESET}                   Verify setup (files, tools, keys)
   ${GREEN}upgrade${RESET}                 Self-update from git
+  ${GREEN}uninstall${RESET}               Remove agent-env
   ${GREEN}version${RESET}                 Print version
   ${GREEN}help${RESET}                    Show this help
 
@@ -544,8 +614,9 @@ main() {
     edit)     cmd_edit "$@" ;;
     view)     cmd_view "$@" ;;
     check)    cmd_check "$@" ;;
-    upgrade)  cmd_upgrade "$@" ;;
-    version)  cmd_version "$@" ;;
+    upgrade)   cmd_upgrade "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    version)   cmd_version "$@" ;;
     help|-h|--help) cmd_help "$@" ;;
     -v|--version)   cmd_version "$@" ;;
     *)
