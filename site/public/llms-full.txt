@@ -140,6 +140,17 @@ Use `--env FILE` to skip discovery and use a specific file:
 agent-env run --env ~/work/.secrets claude
 ```
 
+## Layered Secrets
+
+agent-env loads secrets in two layers (project overrides global):
+
+1. **Global**: `~/.config/agent-env/.sops.env` -- cross-project keys (loaded for every project)
+2. **Project**: `<repo>/.sops.env` -- project-specific keys (loaded only if present)
+
+Project values override global values for the same key. This means shared keys like `ANTHROPIC_API_KEY` or `GITHUB_TOKEN` only need to exist in the global file. Project-specific keys (like database URLs) go in the project's `.sops.env`.
+
+Use `agent-env run --no-global claude` to skip global loading.
+
 ## SOPS vs Dotenv
 
 | Feature | Dotenv (`.env`) | SOPS (`.sops.env`) |
@@ -173,6 +184,89 @@ agent-env works with MCP servers too -- just wrap the MCP command:
 - SOPS provides encryption-at-rest with age or GPG backends
 - No secrets appear in command-line arguments (environment variables only)
 - `.env` files are excluded from git via `.gitignore` (enforced by `init`)
+
+## New Machine Setup
+
+Setting up agent-env on a new machine requires the Age private key (for SOPS decryption) and the global secrets file.
+
+### Step 1: Install prerequisites
+
+```bash
+# macOS
+brew install sops age
+
+# Linux
+# See https://github.com/getsops/sops and https://github.com/FiloSottile/age
+```
+
+### Step 2: Transfer your Age key
+
+The Age private key at `~/.config/sops/age/keys.txt` is the root of trust. Transfer it via a secure out-of-band method:
+
+**Bitwarden CLI** (recommended):
+```bash
+# On existing machine -- store the key
+cat ~/.config/sops/age/keys.txt | bw create item "age-key"
+
+# On new machine -- retrieve the key
+mkdir -p ~/.config/sops/age
+bw get notes "age-key" > ~/.config/sops/age/keys.txt
+chmod 600 ~/.config/sops/age/keys.txt
+```
+
+**SCP** (between machines on same network):
+```bash
+scp user@existing-machine:~/.config/sops/age/keys.txt ~/.config/sops/age/keys.txt
+chmod 600 ~/.config/sops/age/keys.txt
+```
+
+**1Password / other password manager**: Store as a Secure Note, copy to `~/.config/sops/age/keys.txt` on new machine.
+
+### Step 3: Install agent-env
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash
+```
+
+### Step 4: Sync global secrets
+
+If you manage dotfiles with Chezmoi:
+```bash
+# On existing machine (one-time)
+chezmoi add ~/.config/agent-env/.sops.env
+
+# On new machine
+chezmoi apply
+```
+
+Or copy manually:
+```bash
+scp user@existing-machine:~/.config/agent-env/.sops.env ~/.config/agent-env/.sops.env
+```
+
+Since `.sops.env` is SOPS-encrypted, it's safe to store in your dotfiles repo.
+
+### Step 5: Verify
+
+```bash
+agent-env check        # verify setup
+agent-env view         # confirm secrets decrypt
+```
+
+### Per-machine keys (optional)
+
+For better security, generate a unique Age key per machine and add all public keys to your `.sops.yaml` files:
+
+```bash
+# Generate new key on new machine
+age-keygen -o ~/.config/sops/age/keys.txt
+
+# Add the public key to .sops.yaml in each repo
+# Then re-encrypt all files:
+sops updatekeys .sops.env
+```
+
+This lets you revoke a single machine without affecting others.
 
 ## Uninstall
 

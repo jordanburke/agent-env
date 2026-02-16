@@ -179,6 +179,91 @@ agent-env run --env ~/work/.secrets claude
 - No secrets appear in command-line arguments (environment variables only)
 - `.env` files are excluded from git via `.gitignore` (enforced by `init`)
 
+## New Machine Setup
+
+Setting up `agent-env` on a new machine requires two things: the Age private key (for SOPS decryption) and the global secrets file.
+
+### 1. Install prerequisites
+
+```bash
+# macOS
+brew install sops age
+
+# Linux
+# See https://github.com/getsops/sops and https://github.com/FiloSottile/age
+```
+
+### 2. Transfer your Age key
+
+The Age private key at `~/.config/sops/age/keys.txt` is the root of trust — it can't be encrypted by itself. Transfer it via a secure out-of-band method:
+
+**Bitwarden CLI** (recommended):
+```bash
+# On existing machine — store the key
+bw login
+cat ~/.config/sops/age/keys.txt | bw create item --stdin  # or store as a Secure Note
+
+# On new machine — retrieve the key
+mkdir -p ~/.config/sops/age
+bw get notes "age-key" > ~/.config/sops/age/keys.txt
+chmod 600 ~/.config/sops/age/keys.txt
+```
+
+**SCP** (between machines on same network):
+```bash
+scp user@existing-machine:~/.config/sops/age/keys.txt ~/.config/sops/age/keys.txt
+chmod 600 ~/.config/sops/age/keys.txt
+```
+
+**1Password / other password manager**: Store as a Secure Note, copy on new machine.
+
+### 3. Install agent-env
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash
+```
+
+### 4. Sync global secrets
+
+If you manage dotfiles with [Chezmoi](https://chezmoi.io), add the global secrets file once:
+
+```bash
+# On existing machine
+chezmoi add ~/.config/agent-env/.sops.env
+
+# On new machine (after chezmoi init)
+chezmoi apply
+```
+
+Or copy manually:
+```bash
+scp user@existing-machine:~/.config/agent-env/.sops.env ~/.config/agent-env/.sops.env
+```
+
+Since `.sops.env` is SOPS-encrypted, it's safe to store in your dotfiles repo.
+
+### 5. Verify
+
+```bash
+agent-env check        # verify setup
+agent-env view         # confirm secrets decrypt
+```
+
+### Per-machine keys (optional)
+
+For better security, generate a unique Age key per machine and add all public keys to your `.sops.yaml` files:
+
+```bash
+# Generate new key on new machine
+age-keygen -o ~/.config/sops/age/keys.txt
+
+# Add the public key to .sops.yaml in each repo
+# Then re-encrypt all files:
+sops updatekeys .sops.env
+```
+
+This lets you revoke a single machine without affecting others.
+
 ## Uninstall
 
 ```bash

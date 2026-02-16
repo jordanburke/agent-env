@@ -1,0 +1,203 @@
+---
+import Base from "../layouts/Base.astro"
+import Footer from "../components/Footer.astro"
+
+const steps = [
+  {
+    num: "1",
+    title: "Install prerequisites",
+    desc: "Install sops and age for encrypted secrets. Skip if using plaintext .env files.",
+    code: "brew install sops age",
+    alt: "# Linux: see github.com/getsops/sops + github.com/FiloSottile/age",
+  },
+  {
+    num: "2",
+    title: "Transfer your Age key",
+    desc: "The Age private key is the root of trust — it decrypts everything. Transfer it securely to the new machine.",
+    code: "mkdir -p ~/.config/sops/age\nchmod 700 ~/.config/sops/age",
+    alt: null,
+  },
+  {
+    num: "3",
+    title: "Install agent-env",
+    desc: "One-line install. Requires bash 4+.",
+    code: "curl -fsSL https://raw.githubusercontent.com/jordanburke/agent-env/main/install.sh | bash",
+    alt: null,
+  },
+  {
+    num: "4",
+    title: "Sync global secrets",
+    desc: "Copy or sync your global secrets file. Since it's SOPS-encrypted, it's safe in dotfiles repos.",
+    code: "# If using chezmoi:\nchezmoi apply\n\n# Or copy manually:\nscp user@old-machine:~/.config/agent-env/.sops.env ~/.config/agent-env/",
+    alt: null,
+  },
+  {
+    num: "5",
+    title: "Verify",
+    desc: "Check that everything works. You should see your decrypted keys.",
+    code: "agent-env check\nagent-env view",
+    alt: null,
+  },
+]
+
+const transferMethods = [
+  {
+    name: "Bitwarden CLI",
+    tag: "recommended",
+    retrieve: 'bw get notes "age-key" > ~/.config/sops/age/keys.txt\nchmod 600 ~/.config/sops/age/keys.txt',
+    store: 'cat ~/.config/sops/age/keys.txt | bw create item "age-key"',
+    pros: "Encrypted vault, cross-platform, team sharing",
+  },
+  {
+    name: "SCP",
+    tag: "quick",
+    retrieve: "scp user@old-machine:~/.config/sops/age/keys.txt ~/.config/sops/age/\nchmod 600 ~/.config/sops/age/keys.txt",
+    store: null,
+    pros: "Direct transfer, no third party, works on any network",
+  },
+  {
+    name: "1Password / password manager",
+    tag: "manual",
+    retrieve: "# Copy from Secure Note into:\n# ~/.config/sops/age/keys.txt\nchmod 600 ~/.config/sops/age/keys.txt",
+    store: null,
+    pros: "Works with any password manager, GUI-friendly",
+  },
+]
+---
+
+<Base title="New Machine Setup — agent-env" description="Bootstrap agent-env on a new machine: transfer Age keys, sync secrets, start working.">
+  <main>
+    <!-- Header -->
+    <section class="relative px-6 pt-24 pb-16 md:pt-32 md:pb-20">
+      <div class="mx-auto max-w-4xl">
+        <a href="/" class="mb-8 inline-block text-sm text-terminal-dim transition-colors hover:text-terminal-green">
+          &larr; back to agent-env
+        </a>
+
+        <h1 class="mb-4 text-3xl font-bold tracking-tight text-white md:text-5xl">
+          New machine <span class="text-terminal-green">setup</span>
+        </h1>
+        <p class="text-lg text-terminal-dim">
+          Get agent-env running on a fresh machine in five steps.
+        </p>
+      </div>
+    </section>
+
+    <!-- Steps -->
+    <section class="px-6 pb-16 md:pb-24">
+      <div class="mx-auto max-w-4xl">
+        <div class="relative">
+          <div class="absolute left-6 top-0 hidden h-full w-px bg-border-subtle md:block"></div>
+
+          <div class="space-y-8">
+            {steps.map((step) => (
+              <div class="flex gap-6">
+                <div class="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-terminal-green/30 bg-surface-raised text-lg font-bold text-terminal-green">
+                  {step.num}
+                </div>
+                <div class="flex-1 rounded-lg border border-border-subtle bg-surface-raised p-5">
+                  <h3 class="mb-1 text-lg font-semibold text-white">{step.title}</h3>
+                  <p class="mb-3 text-sm text-terminal-dim">{step.desc}</p>
+                  <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code>{step.code}</code></pre>
+                  {step.alt && (
+                    <p class="mt-2 text-xs text-terminal-dim">{step.alt}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Key Transfer Methods -->
+    <section class="px-6 pb-16 md:pb-24">
+      <div class="mx-auto max-w-4xl">
+        <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">Transferring your Age key</h2>
+        <p class="mb-12 text-center text-terminal-dim">
+          The Age private key can't be encrypted by itself — use a secure out-of-band method.
+        </p>
+
+        <div class="space-y-6">
+          {transferMethods.map((method) => (
+            <div class="rounded-lg border border-border-subtle bg-surface-raised p-5">
+              <div class="mb-3 flex items-center gap-3">
+                <h3 class="text-lg font-semibold text-white">{method.name}</h3>
+                <span class={`rounded-full px-2 py-0.5 text-xs ${
+                  method.tag === "recommended"
+                    ? "border border-terminal-green/30 text-terminal-green"
+                    : "border border-border-subtle text-terminal-dim"
+                }`}>
+                  {method.tag}
+                </span>
+              </div>
+              {method.store && (
+                <div class="mb-3">
+                  <p class="mb-1 text-xs text-terminal-dim">Store (from existing machine):</p>
+                  <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code>{method.store}</code></pre>
+                </div>
+              )}
+              <div class="mb-3">
+                <p class="mb-1 text-xs text-terminal-dim">Retrieve (on new machine):</p>
+                <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code>{method.retrieve}</code></pre>
+              </div>
+              <p class="text-xs text-terminal-dim">{method.pros}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Per-machine keys -->
+    <section class="px-6 pb-16 md:pb-24">
+      <div class="mx-auto max-w-4xl">
+        <div class="rounded-lg border border-terminal-cyan/20 bg-terminal-cyan/5 p-6">
+          <h3 class="mb-2 text-lg font-semibold text-terminal-cyan">Per-machine keys (optional)</h3>
+          <p class="mb-4 text-sm text-gray-300">
+            For better security, generate a unique Age key per machine. Add all public keys to your
+            <code class="text-terminal-cyan">.sops.yaml</code> files, then re-encrypt:
+          </p>
+          <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code># Generate new key on new machine
+age-keygen -o ~/.config/sops/age/keys.txt
+
+# Add the public key to .sops.yaml in each repo
+# Then re-encrypt:
+sops updatekeys .sops.env</code></pre>
+          <p class="mt-3 text-xs text-terminal-dim">
+            This lets you revoke a single machine without affecting others.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dotfiles sync -->
+    <section class="px-6 pb-16 md:pb-24">
+      <div class="mx-auto max-w-4xl">
+        <h2 class="mb-4 text-center text-2xl font-bold text-white md:text-3xl">Syncing with dotfiles</h2>
+        <p class="mb-12 text-center text-terminal-dim">
+          Since <code class="text-terminal-cyan">.sops.env</code> is encrypted, it's safe to store in your dotfiles repo.
+        </p>
+
+        <div class="grid gap-6 md:grid-cols-2">
+          <div class="rounded-lg border border-border-subtle bg-surface-raised p-5">
+            <h3 class="mb-3 text-sm font-semibold text-terminal-green">Chezmoi</h3>
+            <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code># Add once (existing machine)
+chezmoi add ~/.config/agent-env/.sops.env
+
+# Sync (new machine)
+chezmoi apply</code></pre>
+          </div>
+          <div class="rounded-lg border border-border-subtle bg-surface-raised p-5">
+            <h3 class="mb-3 text-sm font-semibold text-terminal-green">Git bare repo / stow</h3>
+            <pre class="overflow-x-auto rounded bg-surface-overlay p-3 text-xs text-terminal-cyan"><code># Track the file in your dotfiles
+cp ~/.config/agent-env/.sops.env \
+   ~/dotfiles/.config/agent-env/
+
+# On new machine: restore</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Base>
