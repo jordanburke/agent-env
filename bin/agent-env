@@ -6,7 +6,7 @@ set -euo pipefail
 # https://github.com/jordanburke/agent-env
 # ============================================================================
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 PROGRAM="agent-env"
 
 # Colors (disabled if neither stdout nor stderr is a terminal)
@@ -285,13 +285,13 @@ cmd_run() {
 
   # Layer 1: Global secrets (base)
   if [[ -n "$global_file" ]]; then
-    info "Global:  $global_file"
+    debug "Global:  $global_file"
     load_secrets_file "$global_file" "global"
   fi
 
   # Layer 2: Project secrets (overlay — overrides global)
   if [[ -n "$project_file" ]]; then
-    info "Project: $project_file"
+    debug "Project: $project_file"
     load_secrets_file "$project_file" "project"
   fi
 
@@ -416,24 +416,123 @@ cmd_edit() {
 # Subcommand: view
 # ---------------------------------------------------------------------------
 cmd_view() {
-  local secrets_file
-  secrets_file="$(discover_secrets_file)" || \
-    die "No secrets file found. Run '$PROGRAM init' to create one."
+  local show_all=0 keys_only=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all|-a)  show_all=1; shift ;;
+      --keys|-k) keys_only=1; shift ;;
+      *)         die "Unknown view option: $1" ;;
+    esac
+  done
 
-  local mode
-  mode="$(detect_mode "$secrets_file")"
+  ensure_age_key
 
-  info "Secrets file: $secrets_file (${mode})"
+  # Helper: decrypt/read a secrets file to stdout (KEY=value lines)
+  _decrypt_to_stdout() {
+    local file="$1"
+    local mode
+    mode="$(detect_mode "$file")"
+    case "$mode" in
+      sops)
+        check_sops_deps || exit 1
+        sops --decrypt --output-type dotenv "$file"
+        ;;
+      dotenv)
+        cat "$file"
+        ;;
+    esac
+  }
 
-  case "$mode" in
-    sops)
-      check_sops_deps || exit 1
-      sops --decrypt "$secrets_file"
-      ;;
-    dotenv)
-      cat "$secrets_file"
-      ;;
-  esac
+  # Helper: filter output — strip comments/blanks, optionally keys-only
+  _filter_output() {
+    if [[ "$keys_only" -eq 1 ]]; then
+      grep -v '^\s*#' | grep -v '^\s*$' | sed 's/=.*//'
+    else
+      cat
+    fi
+  }
+
+  if [[ "$show_all" -eq 1 ]]; then
+    local global_file="" project_file=""
+
+    if [[ "$NO_GLOBAL" -eq 0 ]]; then
+      global_file="$(discover_global_file)" || true
+    fi
+    project_file="$(discover_project_file)" || true
+
+    if [[ -n "$project_file" && "$project_file" == "$global_file" ]]; then
+      global_file=""
+    fi
+
+    if [[ -z "$global_file" && -z "$project_file" ]]; then
+      die "No secrets file found. Run '$PROGRAM init' to create one."
+    fi
+
+    # Print global layer
+    if [[ -n "$global_file" ]]; then
+      printf "${DIM}── Global: %s ──${RESET}\n" "$global_file" >&2
+      _decrypt_to_stdout "$global_file" | _filter_output
+      printf "\n"
+    else
+      printf "${DIM}── Global: (none) ──${RESET}\n" >&2
+      printf "\n"
+    fi
+
+    # Print project layer
+    if [[ -n "$project_file" ]]; then
+      printf "${DIM}── Project: %s ──${RESET}\n" "$project_file" >&2
+      _decrypt_to_stdout "$project_file" | _filter_output
+      printf "\n"
+    else
+      printf "${DIM}── Project: (none) ──${RESET}\n" >&2
+      printf "\n"
+    fi
+
+    # Print merged view
+    printf "${BOLD}── Merged (effective) ──${RESET}\n" >&2
+
+    # Build merged result: global base, project overlay
+    declare -A merged=()
+    local -a key_order=()
+
+    _parse_into_merged() {
+      local file="$1"
+      while IFS= read -r line; do
+        # Skip comments and blank lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        local key="${line%%=*}"
+        local val="${line#*=}"
+        if [[ -z "${merged[$key]+_}" ]]; then
+          key_order+=("$key")
+        fi
+        merged["$key"]="$val"
+      done < <(_decrypt_to_stdout "$file")
+    }
+
+    if [[ -n "$global_file" ]]; then
+      _parse_into_merged "$global_file"
+    fi
+    if [[ -n "$project_file" ]]; then
+      _parse_into_merged "$project_file"
+    fi
+
+    for key in "${key_order[@]}"; do
+      if [[ "$keys_only" -eq 1 ]]; then
+        printf "%s\n" "$key"
+      else
+        printf "%s=%s\n" "$key" "${merged[$key]}"
+      fi
+    done
+  else
+    # Single-file view (existing behavior)
+    local secrets_file
+    secrets_file="$(discover_secrets_file)" || \
+      die "No secrets file found. Run '$PROGRAM init' to create one."
+
+    info "Secrets file: $secrets_file ($(detect_mode "$secrets_file"))"
+    _decrypt_to_stdout "$secrets_file" | _filter_output
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -653,7 +752,7 @@ ${BOLD}COMMANDS${RESET}
   ${GREEN}run${RESET} <agent> [args...]   Inject secrets and launch an AI agent
   ${GREEN}init${RESET} [--sops]           Create a new secrets file (.env or .sops.env)
   ${GREEN}edit${RESET}                    Edit secrets file (sops edit or \$EDITOR)
-  ${GREEN}view${RESET}                    View decrypted secrets
+  ${GREEN}view${RESET} [options]           View decrypted secrets
   ${GREEN}check${RESET}                   Verify setup (files, tools, keys)
   ${GREEN}upgrade${RESET}                 Self-update from git
   ${GREEN}uninstall${RESET}               Remove agent-env
@@ -668,6 +767,10 @@ ${BOLD}RUN OPTIONS${RESET}
   --dotenv              Force dotenv mode
   --no-global           Skip loading global secrets layer
 
+${BOLD}VIEW OPTIONS${RESET}
+  --all, -a             Show all layers (global + project + merged)
+  --keys, -k            Show key names only (no values)
+
 ${BOLD}EXAMPLES${RESET}
   $PROGRAM claude                        # Run Claude Code with secrets (shorthand)
   $PROGRAM run claude                    # Same thing, explicit form
@@ -676,6 +779,9 @@ ${BOLD}EXAMPLES${RESET}
   $PROGRAM run --no-global claude        # Skip global layer
   $PROGRAM init                          # Create .env in current directory
   $PROGRAM init --sops                   # Create encrypted .sops.env
+  $PROGRAM view --all                     # Show all layers merged
+  $PROGRAM view --keys                    # List key names only
+  $PROGRAM view --all --keys              # Key names from all layers
   $PROGRAM check                         # Verify everything is set up
 
 ${BOLD}LAYERED SECRETS${RESET}
