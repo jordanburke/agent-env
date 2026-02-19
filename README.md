@@ -264,6 +264,27 @@ sops updatekeys .sops.env
 
 This lets you revoke a single machine without affecting others.
 
+## Claude Code Plugin
+
+agent-env includes a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) that adds secrets management skills, commands, and an MCP environment configurator agent.
+
+### Install
+
+```bash
+claude plugins add /path/to/agent-env
+```
+
+### What's Included
+
+| Component | Description |
+|-----------|-------------|
+| **Skill**: secrets-management | Procedural knowledge for SOPS + Age encryption, layered secrets, key rotation |
+| `/agent-env:init` | Initialize agent-env in a project |
+| `/agent-env:check` | Verify setup (files, tools, keys) |
+| `/agent-env:view` | View decrypted secrets with layer sources |
+| `/agent-env:bootstrap` | Interactive new machine setup guide |
+| **Agent**: mcp-env-configurator | Scans `.mcp.json` for `${VAR}` refs and verifies they exist in agent-env layers |
+
 ## Uninstall
 
 ```bash

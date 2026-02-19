@@ -1,0 +1,13 @@
+{
+  "name": "agent-env",
+  "version": "0.1.0",
+  "description": "Secret management for AI coding agents — layered SOPS encryption, MCP env var configuration, new machine bootstrap",
+  "author": {
+    "name": "Jordan Burke",
+    "url": "https://github.com/jordanburke"
+  },
+  "homepage": "https://agent-env.dev",
+  "repository": "https://github.com/jordanburke/agent-env",
+  "license": "MIT",
+  "keywords": ["secrets", "sops", "age", "encryption", "mcp", "environment-variables", "dotenv"]
+}

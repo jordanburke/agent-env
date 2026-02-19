@@ -1,0 +1,25 @@
+# Example .sops.yaml with per-org Age keys
+# Place at repo root. First matching rule wins.
+#
+# To use different keys per org, replace the age: value
+# on each org's rule with that org's public key.
+
+creation_rules:
+  # Org-specific rules (swap age: key per org as needed)
+  - path_regex: ^cquenced/.*\.yaml$
+    age: >-
+      age1examplekey_cquenced_replace_me
+  - path_regex: ^civala/.*\.yaml$
+    age: >-
+      age1examplekey_civala_replace_me
+  - path_regex: ^sapientsai/.*\.yaml$
+    age: >-
+      age1examplekey_sapientsai_replace_me
+
+  # Root files (personal key)
+  - path_regex: ^infra\.yaml$
+    age: >-
+      age1examplekey_personal_replace_me
+  - path_regex: \.sops\.env$
+    age: >-
+      age1examplekey_personal_replace_me
